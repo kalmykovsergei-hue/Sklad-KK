@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Склад">
+    <title>Склад</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, sans-serif; margin: 0; padding: 15px 15px 60px; background: whitesmoke; color: black; }
+        h2 { text-align: center; margin: 0 0 8px; }
+        .top-bar { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 15px; font-size: 13px; color: gray; flex-wrap: wrap; }
+        .btn-mini { background: seagreen; color: white; border: none; padding: 6px 12px; border-radius: 15px; font-size: 13px; font-weight: bold; cursor: pointer; }
+        .btn-share { background: royalblue; }
+        .btn-cfg { background: lightgray; color: black; }
+        
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
+        .box { background: white; padding: 10px; border-radius: 10px; box-shadow: 0 1px 2px lightgray; }
+        .lbl { font-size: 12px; color: gray; }
+        .val { font-size: 16px; font-weight: bold; margin-top: 3px; }
+        .prof { grid-column: span 2; background: honeydew; border: 1px solid seagreen; }
+        
+        .card { background: white; padding: 12px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 1px 2px lightgray; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .full { grid-column: span 2; }
+        input { width: 100%; padding: 10px; border: 1px solid silver; border-radius: 6px; font-size: 16px; }
+        button { border: none; border-radius: 8px; font-size: 16px; font-weight: bold; padding: 12px; cursor: pointer; }
+        .btn-add { background: royalblue; color: white; width: 100%; margin-top: 10px; }
+        
+        .item { background: white; padding: 12px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid royalblue; box-shadow: 0 1px 2px lightgray; }
+        .row { display: flex; justify-content: space-between; align-items: center; }
+        .cbtn { width: 35px; height: 35px; border-radius: 50%; padding: 0; color: white; font-size: 20px; }
+        
+        #setup-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; padding: 20px; z-index: 99; }
+        .modal-box { background: white; padding: 20px; border-radius: 12px; width: 100%; max-width: 380px; }
+    </style>
+</head>
+<body>
+
+    <h2>📦 Общий Склад</h2>
+    <div class="top-bar">
+        <span id="status">Готов</span>
+        <button class="btn-mini" onclick="loadData()">🔄 Обновить</button>
+        <button class="btn-mini btn-share" onclick="copyInvite()">🔗 Ссылка напарнику</button>
+        <button class="btn-mini btn-cfg" onclick="openSetup()">⚙️</button>
+    </div>
+
+    <div class="stats">
+        <div class="box"><div class="lbl">Закупка</div><div class="val" id="tb">0 ₽</div></div>
+        <div class="box"><div class="lbl">Доставка</div><div class="val" id="td">0 ₽</div></div>
+        <div class="box"><div class="lbl">Себестоимость</div><div class="val" id="tc">0 ₽</div></div>
+        <div class="box"><div class="lbl">Продажа</div><div class="val" id="ts">0 ₽</div></div>
+        <div class="box prof"><div class="lbl">Прибыль</div><div class="val" style="color:seagreen" id="tp">0 ₽</div></div>
+    </div>
+
+    <div class="card">
+        <div class="grid">
+            <input id="n" class="full" placeholder="Название товара">
+            <input id="q" type="number" inputmode="numeric" placeholder="Кол-во (шт)">
+            <input id="bp" type="number" inputmode="decimal" placeholder="Закупка 1 шт">
+            <input id="dp" type="number" inputmode="decimal" placeholder="Доставка 1 шт">
+            <input id="sp" type="number" inputmode="decimal" placeholder="Продажа 1 шт">
+        </div>
+        <button class="btn-add" onclick="add()">+ Добавить</button>
+    </div>
+
+    <div id="list"></div>
+
+    <div id="setup-modal">
+        <div class="modal-box">
+            <h3 style="margin-top:0">Подключение (один раз)</h3>
+            <input id="cfg-user" placeholder="Логин GitHub" style="margin-bottom:10px">
+            <input id="cfg-repo" value="sklad" placeholder="Репозиторий (sklad)" style="margin-bottom:10px">
+            <input id="cfg-token" type="password" placeholder="Токен (ghp_...)" style="margin-bottom:15px">
+            <button class="btn-add" onclick="saveConfig()">Сохранить</button>
+        </div>
+    </div>
+
+    <script>
+        var cfg = null;
+        var d = [];
+        var fileSha = null;
+
+        (function checkInvite() {
+            var hash = window.location.hash.substring(1);
+            if (hash && hash.indexOf('t=') !== -1) {
+                var params = new URLSearchParams(hash);
+                var u = params.get('u'), r = params.get('r'), t = params.get('t');
+                if (u && t) {
+                    cfg = { user: u, repo: r || 'sklad', token: t };
+                    try { localStorage.setItem('gh_sklad_cfg', JSON.stringify(cfg)); } catch (e) {}
+                    history.replaceState(null, null, window.location.pathname);
+                }
+            }
+            if (!cfg) {
+                try { cfg = JSON.parse(localStorage.getItem('gh_sklad_cfg')); } catch (e) {}
+            }
+        })();
+
+        function copyInvite() {
+            if (!cfg) { openSetup(); return; }
+            var inviteUrl = window.location.origin + window.location.pathname + '#u=' + encodeURIComponent(cfg.user) + '&r=' + encodeURIComponent(cfg.repo) + '&t=' + encodeURIComponent(cfg.token);
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(inviteUrl).then(function() {
+                    alert('Ссылка скопирована! Отправьте её напарнику — ему не придется ничего настраивать.');
+                });
+            } else {
+                prompt('Скопируйте эту ссылку для напарника:', inviteUrl);
+            }
+        }
+
+        function setStatus(txt) { document.getElementById('status').innerText = txt; }
+
+        function openSetup() {
+            if (cfg) {
+                document.getElementById('cfg-user').value = cfg.user;
+                document.getElementById('cfg-repo').value = cfg.repo;
+                document.getElementById('cfg-token').value = cfg.token;
+            }
+            document.getElementById('setup-modal').style.display = 'flex';
+        }
+
+        function saveConfig() {
+            var user = document.getElementById('cfg-user').value.trim();
+            var repo = document.getElementById('cfg-repo').value.trim() || 'sklad';
+            var token = document.getElementById('cfg-token').value.trim();
+            if (!user || !token) { alert('Заполните логин и токен'); return; }
+            cfg = { user: user, repo: repo, token: token };
+            try { localStorage.setItem('gh_sklad_cfg', JSON.stringify(cfg)); } catch (e) {}
+            document.getElementById('setup-modal').style.display = 'none';
+            loadData();
+        }
+
+        function toBase64(str) { return btoa(unescape(encodeURIComponent(str))); }
+        function fromBase64(str) { return decodeURIComponent(escape(atob(str))); }
+
+        function loadData() {
+            if (!cfg) { openSetup(); return; }
+            setStatus('Загрузка...');
+            var url = 'https://github.com' + cfg.user + '/' + cfg.repo + '/contents/data.json?t=' + Date.now();
+            fetch(url, {
+                headers: { 'Authorization': 'token ' + cfg.token, 'Accept': 'application/vnd.github.v3+json' }
+            })
+            .then(function(res) {
+                if (res.status === 404) {
+                    d = []; fileSha = null; draw(); setStatus('База готова ✓');
+                    return null;
+                }
+                if (!res.ok) throw new Error();
+                return res.json();
+            })
+            .then(function(json) {
+                if (!json) return;
+                fileSha = json.sha;
+                d = JSON.parse(fromBase64(json.content));
+                draw();
+                setStatus('Обновлено ✓');
+            })
+            .catch(function() { setStatus('Ошибка связи ⚠️'); });
+        }
+
+        function saveData() {
+            if (!cfg) { openSetup(); return; }
+            setStatus('Сохранение...');
+            draw();
+            var url = 'https://github.com' + cfg.user + '/' + cfg.repo + '/contents/data.json';
+            var body = { message: 'Update', content: toBase64(JSON.stringify(d)) };
+            if (fileSha) body.sha = fileSha;
+
+            fetch(url, {
+                method: 'PUT',
+                headers: { 'Authorization': 'token ' + cfg.token, 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            .then(function(res) {
+                if (!res.ok) {
+                    alert('Напарник обновил склад раньше вас. Нажмите Обновить.');
+                    loadData();
+                    return null;
+                }
+                return res.json();
+            })
+            .then(function(json) {
+                if (!json) return;
+                fileSha = json.content.sha;
+                setStatus('Сохранено ✓');
+            })
+            .catch(function() { setStatus('Ошибка сохранения ⚠️'); });
+        }
+
+        function add() {
+            var n = document.getElementById('n').value.trim(),
+                q = Number(document.getElementById('q').value),
+                bp = Number(document.getElementById('bp').value) || 0,
+                dp = Number(document.getElementById('dp').value) || 0,
+                sp = Number(document.getElementById('sp').value) || 0;
